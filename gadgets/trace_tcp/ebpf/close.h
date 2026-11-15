@@ -8,6 +8,7 @@
 #define __IG_TCP_CLOSE_H
 
 #include "common.h"
+#include "connect.h"
 
 static __always_inline void handle_tcp_close(struct pt_regs *ctx,
 					     struct sock *sk)
@@ -15,6 +16,12 @@ static __always_inline void handle_tcp_close(struct pt_regs *ctx,
 	struct tuple_key_t tuple = {};
 	struct event *event;
 	u16 family;
+
+	/*
+	 * A pending connect must not outlive its socket, including cancellation
+	 * before establishment. Cleanup is independent of close-event output.
+	 */
+	forget_tcp_connect(sk);
 
 	// Close events don't have errors.
 	// User does not want to see successful events.
