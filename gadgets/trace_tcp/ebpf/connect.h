@@ -13,6 +13,8 @@
 struct extended_info {
 	struct gadget_process proc;
 	__u32 fd;
+	/* Uses the existing tail padding; keep the map's value size unchanged. */
+	__u32 claimed;
 };
 
 /*
@@ -28,6 +30,7 @@ struct extended_info {
  *
  * Entries are deleted in a kprobe, so there are no kretprobe maxactive issues:
  * - kprobe/tcp_set_state
+ * - kprobe/tcp_close, even if close events are filtered out
  */
 
 struct {
@@ -36,6 +39,18 @@ struct {
 	__type(key, struct tuple_key_t);
 	__type(value, struct extended_info);
 } tuplepid SEC(".maps");
+
+static __always_inline void handle_tcp_set_state(struct pt_regs *ctx,
+						 struct sock *sk, int state);
+
+static __always_inline void forget_tcp_connect(struct sock *sk)
+{
+	struct tuple_key_t tuple = {};
+	__u16 family = BPF_CORE_READ(sk, __sk_common.skc_family);
+
+	if (fill_tuple(&tuple, sk, family))
+		bpf_map_delete_elem(&tuplepid, &tuple);
+}
 
 static __always_inline int enter_tcp_connect(struct pt_regs *ctx,
 					     struct sock *sk)
@@ -58,6 +73,7 @@ static __always_inline int exit_tcp_connect(struct pt_regs *ctx, int ret,
 	struct sock **skpp;
 	struct sock *sk;
 	__u32 *fd;
+	int state;
 
 	if (ret)
 		return 0;
@@ -74,11 +90,30 @@ static __always_inline int exit_tcp_connect(struct pt_regs *ctx, int ret,
 
 	sk = *skpp;
 
+	/*
+	 * tcp_v6_connect delegates IPv4-mapped sockets to tcp_v4_connect.
+	 * Only the return probe matching the socket family owns the tuple:
+	 * state/close use that family too, and the outer return must not emit
+	 * a second event or leave an IPv4 tuple behind for an IPv6 socket.
+	 */
+	if (BPF_CORE_READ(sk, __sk_common.skc_family) != family)
+		return 0;
+
 	if (!fill_tuple(&tuple, sk, family))
 		return 0;
 
 	gadget_process_populate(&ei.proc);
-	bpf_map_update_elem(&tuplepid, &tuple, &ei, 0);
+	if (bpf_map_update_elem(&tuplepid, &tuple, &ei, 0))
+		return 0;
+
+	/*
+	 * A local handshake can finish before this return probe installs the
+	 * tuple. Check after insertion so either this path or the state probe
+	 * completes it. The claim below makes that race emit at most once.
+	 */
+	state = BPF_CORE_READ(sk, __sk_common.skc_state);
+	if (state == TCP_ESTABLISHED || state == TCP_CLOSE)
+		handle_tcp_set_state(ctx, sk, state);
 
 	return 0;
 }
@@ -117,6 +152,8 @@ static __always_inline void handle_tcp_set_state(struct pt_regs *ctx,
 	ei = bpf_map_lookup_elem(&tuplepid, &tuple);
 	if (!ei)
 		return; /* missed entry */
+	if (__sync_val_compare_and_swap(&ei->claimed, 0, 1))
+		return;
 
 	err = BPF_CORE_READ(sk, sk_err);
 
