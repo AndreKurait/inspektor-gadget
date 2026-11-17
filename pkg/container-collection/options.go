@@ -918,7 +918,7 @@ func WithTracerCollection(tc TracerCollection) ContainerCollectionOption {
 
 						if now.Sub(c.deletionTimestamp) > cc.cacheDelay {
 							c.close()
-							cc.cachedContainers.Delete(c.Runtime.ContainerID)
+							cc.cachedContainers.Delete(key)
 						}
 
 						return true

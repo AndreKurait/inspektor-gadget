@@ -52,6 +52,8 @@ type ContainerCollection struct {
 
 	// Saves containers for "cacheDelay" to be able to enrich events after the container is
 	// removed. This is enabled by using WithTracerCollection().
+	// Keys are container incarnations (*Container), since a runtime ID can restart
+	// before the previous incarnation's namespace references expire.
 	cachedContainers *sync.Map
 	cacheDelay       time.Duration
 
@@ -151,7 +153,7 @@ func (cc *ContainerCollection) RemoveContainer(id string) {
 	// has been removed.
 	if cc.cachedContainers != nil {
 		container.deletionTimestamp = time.Now()
-		cc.cachedContainers.Store(id, v)
+		cc.cachedContainers.Store(container, container)
 	}
 
 	// Remove the container from the collection after publishing the event as
