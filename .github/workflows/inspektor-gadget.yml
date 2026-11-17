@@ -1743,7 +1743,7 @@ jobs:
         # Final name of the chart will be REGISTRY/CONTAINER_REPO/charts/CHART_NAME:CHART_VERSION
         # where CHART_NAME and CHART_VERSION are derived from the Chart.yaml packaged in the tgz
         helm push gadget-*.tgz \
-          oci://${REGISTRY}/${CONTAINER_REPO}/charts
+          "oci://${REGISTRY,,}/${CONTAINER_REPO,,}/charts"
 
   test-components:
     name: Test components
@@ -2813,7 +2813,7 @@ jobs:
       env:
         IMAGE_TAG: ${{ steps.set-repo-determine-image-tag.outputs.image-tag }}
       run: |
-        export IMAGE="${REGISTRY}/${CONTAINER_REPO}:${IMAGE_TAG}"
+        export IMAGE="${REGISTRY,,}/${CONTAINER_REPO,,}:${IMAGE_TAG}"
         cp pkg/resources/manifests/deploy.yaml "inspektor-gadget-${GITHUB_REF_NAME}.yaml"
         perl -pi -e 's@(image:) ".+\"@$1 "$ENV{IMAGE}"@; s@"latest"@"$ENV{IMAGE_TAG}"@;' "inspektor-gadget-${GITHUB_REF_NAME}.yaml"
     - name: Create Draft Release
