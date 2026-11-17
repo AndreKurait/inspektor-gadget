@@ -70,7 +70,9 @@ func TestTraceTcpFastConnectCompletesOnce(t *testing.T) {
 				require.Empty(t, event.Error)
 				counts[int(event.Src.Port)]++
 			}
-			require.Len(t, counts, len(sourcePorts), "every socket must produce a connect event")
+			require.Len(t, counts, len(sourcePorts),
+				"every socket must produce a connect event: runner=%+v destination=%d events=%+v",
+				runner.Info, destinationPort, trace.CapturedEvents)
 			for _, port := range sourcePorts {
 				require.Equal(t, 1, counts[port], "socket with source port %d completed more or less than once", port)
 			}
