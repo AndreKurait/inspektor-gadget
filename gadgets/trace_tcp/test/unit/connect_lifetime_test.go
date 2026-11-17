@@ -19,7 +19,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cilium/ebpf"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
 
@@ -37,18 +36,12 @@ func TestTraceTcpFastConnectCompletesOnce(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			runner := utils.NewRunnerWithTest(t, &utils.RunnerConfig{})
-			filter, err := ebpf.NewMap(&ebpf.MapSpec{
-				Type: ebpf.Hash, KeySize: 8, ValueSize: 4, MaxEntries: 1,
-			})
-			require.NoError(t, err)
-			t.Cleanup(func() { require.NoError(t, filter.Close()) })
-			require.NoError(t, filter.Put(runner.Info.MountNsID, uint32(1)))
 			var sourcePorts []int
 			var destinationPort int
 			trace := gadgetrunner.NewGadgetRunner(t, gadgetrunner.GadgetRunnerOpts[ExpectedTraceTcpEvent]{
 				Image:          "trace_tcp",
 				Timeout:        5 * time.Second,
-				MntnsFilterMap: filter,
+				MntnsFilterMap: utils.CreateMntNsFilterMap(t, runner.Info.MountNsID),
 				OnGadgetRun: func(operators.GadgetContext) error {
 					utils.RunWithRunner(t, runner, func() error {
 						var err error
