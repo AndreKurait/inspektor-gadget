@@ -7,10 +7,12 @@ on:
       - 'fix/**'
     paths:
       - 'pkg/container-collection/**'
+      - 'pkg/testing/utils/**'
       - '.github/workflows/host-runtime.yml'
   pull_request:
     paths:
       - 'pkg/container-collection/**'
+      - 'pkg/testing/utils/**'
       - '.github/workflows/host-runtime.yml'
 
 permissions:

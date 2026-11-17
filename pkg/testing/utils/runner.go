@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"syscall"
 
 	"github.com/vishvananda/netlink"
@@ -69,9 +70,11 @@ type RunnerInfo struct {
 type Runner struct {
 	config *RunnerConfig
 
-	tasks   chan func() error
-	replies chan error
-	Info    *RunnerInfo
+	tasks     chan func() error
+	replies   chan error
+	Info      *RunnerInfo
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
 func NewRunner(config *RunnerConfig) (*Runner, error) {
@@ -82,6 +85,7 @@ func NewRunner(config *RunnerConfig) (*Runner, error) {
 		config:  config,
 		tasks:   make(chan func() error),
 		replies: make(chan error),
+		done:    make(chan struct{}),
 	}
 
 	go r.runLoop()
@@ -100,17 +104,13 @@ func (r *Runner) Run(f func() error) error {
 }
 
 func (r *Runner) Close() {
-	if r.tasks != nil {
-		close(r.tasks)
-		r.tasks = nil
-	}
-	if r.replies != nil {
-		close(r.replies)
-		r.replies = nil
-	}
+	r.closeOnce.Do(func() { close(r.tasks) })
+	<-r.done
 }
 
 func (r *Runner) runLoop() {
+	defer close(r.done)
+	defer close(r.replies)
 	// Don't switch thread in the following code
 	runtime.LockOSThread()
 	// We aren't calling runtime.UnlockOSThread() to let this thread
