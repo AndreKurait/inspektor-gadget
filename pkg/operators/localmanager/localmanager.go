@@ -25,7 +25,6 @@ import (
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/rlimit"
 	"github.com/containerd/containerd/pkg/cri/constants"
-	securejoin "github.com/cyphar/filepath-securejoin"
 	"github.com/google/uuid"
 	"github.com/moby/sys/capability"
 	log "github.com/sirupsen/logrus"
@@ -77,6 +76,7 @@ type localManager struct {
 	containerCollection *containercollection.ContainerCollection
 	tracerCollection    *tracercollection.TracerCollection
 	externalCollections bool
+	stopDockerDiscovery func()
 
 	fakeContainer *containercollection.Container
 }
@@ -203,7 +203,7 @@ func (l *localManager) Init(operatorParams *params.Params) error {
 		socketPath := socketPathParam.AsString()
 		socketPathIsSet := socketPathParam.IsSet()
 
-		cleanSocketPath, err := securejoin.SecureJoin(host.HostRoot, socketPath)
+		cleanSocketPath, err := host.GetSocketPath(socketPath)
 		if err != nil {
 			log.Debugf("securejoin failed: %s", err)
 			continue
@@ -310,10 +310,16 @@ func (l *localManager) initCollections(rc []*containerutilsTypes.RuntimeConfig, 
 		log.Warnf("checking if binary has CAP_SYS_ADMIN: %v", err)
 	}
 
-	if ok {
-		ccOpts = append(ccOpts, containercollection.WithContainerFanotifyEbpf())
-	} else {
-		log.Warn("binary does not have CAP_SYS_ADMIN: new containers will not be detected")
+	dockerEvents := len(rc) == 1 && rc[0].Name == types.RuntimeNameDocker &&
+		(rc[0].RuntimeProtocol == "" || rc[0].RuntimeProtocol == containerutilsTypes.RuntimeProtocolInternal)
+	// Docker events also cover engines that clone containers directly,
+	// without executing an OCI runtime such as runc.
+	if !dockerEvents {
+		if ok {
+			ccOpts = append(ccOpts, containercollection.WithContainerFanotifyEbpf())
+		} else {
+			log.Warn("binary does not have CAP_SYS_ADMIN: new containers will not be detected")
+		}
 	}
 
 	if kubeconfig != "" {
@@ -335,11 +341,22 @@ func (l *localManager) initCollections(rc []*containerutilsTypes.RuntimeConfig, 
 	}
 
 	l.containerCollection = &cc
+	if dockerEvents {
+		l.stopDockerDiscovery, err = cc.StartDockerEventDiscovery(rc[0].SocketPath)
+		if err != nil {
+			cc.Close()
+			l.containerCollection = nil
+			return fmt.Errorf("starting Docker event discovery: %w", err)
+		}
+	}
 
 	return nil
 }
 
 func (l *localManager) Close() error {
+	if l.stopDockerDiscovery != nil {
+		l.stopDockerDiscovery()
+	}
 	if l.containerCollection != nil {
 		l.containerCollection.Close()
 	}
