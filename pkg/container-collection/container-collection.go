@@ -52,6 +52,8 @@ type ContainerCollection struct {
 
 	// Saves containers for "cacheDelay" to be able to enrich events after the container is
 	// removed. This is enabled by using WithTracerCollection().
+	// Keys are container incarnations (*Container), since a runtime ID can restart
+	// before the previous incarnation's namespace references expire.
 	cachedContainers *sync.Map
 	cacheDelay       time.Duration
 
@@ -151,7 +153,7 @@ func (cc *ContainerCollection) RemoveContainer(id string) {
 	// has been removed.
 	if cc.cachedContainers != nil {
 		container.deletionTimestamp = time.Now()
-		cc.cachedContainers.Store(id, v)
+		cc.cachedContainers.Store(container, container)
 	}
 
 	// Remove the container from the collection after publishing the event as
@@ -205,6 +207,12 @@ func (cc *ContainerCollection) RemoveContainer(id string) {
 
 // AddContainer adds a container to the collection.
 func (cc *ContainerCollection) AddContainer(container *Container) {
+	cc.addContainer(container, nil)
+}
+
+// addContainer can validate a runtime snapshot after enrichment, before any
+// namespace filters or subscribers see it.
+func (cc *ContainerCollection) addContainer(container *Container, valid func(*Container) bool) {
 	if err := eventtypes.ValidateContainerID(container.Runtime.ContainerID); err != nil {
 		log.Warnf("container collection: ignoring container with invalid ID: %s", err)
 		container.close()
@@ -218,6 +226,11 @@ func (cc *ContainerCollection) AddContainer(container *Container) {
 			container.close()
 			return
 		}
+	}
+
+	if valid != nil && !valid(container) {
+		container.close()
+		return
 	}
 
 	_, loaded := cc.containers.LoadOrStore(container.Runtime.ContainerID, container)
