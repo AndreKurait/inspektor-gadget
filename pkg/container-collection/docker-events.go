@@ -72,10 +72,10 @@ type dockerDiscovery struct {
 // All access is to the selected local Engine API Unix socket.
 func (cc *ContainerCollection) StartDockerEventDiscovery(socketPath string) (func(), error) {
 	if !cc.initialized || cc.closed {
-		return nil, errors.New("Docker discovery requires an initialized container collection")
+		return nil, errors.New("docker discovery requires an initialized container collection")
 	}
 	if !filepath.IsAbs(socketPath) {
-		return nil, errors.New("Docker discovery requires an absolute Unix socket path")
+		return nil, errors.New("docker discovery requires an absolute Unix socket path")
 	}
 	dialer := &net.Dialer{Timeout: dockerRequestTimeout}
 	transport := &http.Transport{
@@ -174,7 +174,7 @@ func (w *dockerDiscovery) watch(parent context.Context) error {
 				default:
 					// Never silently lose a lifecycle event. A fresh snapshot
 					// repairs a bounded queue overflow without reloading BPF.
-					failed <- errors.New("Docker lifecycle event queue is full")
+					failed <- errors.New("docker lifecycle event queue is full")
 					return
 				}
 			}
@@ -229,7 +229,7 @@ func fullDockerID(id string) bool {
 		return false
 	}
 	for _, c := range id {
-		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 			return false
 		}
 	}
@@ -250,7 +250,7 @@ func (w *dockerDiscovery) reconcile(parent context.Context) error {
 	ids := make(map[string]bool)
 	for _, c := range list.Items {
 		if !fullDockerID(c.ID) {
-			return errors.New("Docker list returned a non-canonical container ID")
+			return errors.New("docker list returned a non-canonical container ID")
 		}
 		ids[c.ID] = true
 	}
@@ -292,17 +292,17 @@ func (w *dockerDiscovery) inspect(parent context.Context, id string) (container.
 	}
 	c := result.Container
 	if c.ID != id || c.State == nil || c.Config == nil {
-		return container.InspectResponse{}, errors.New("Docker inspect returned an incomplete or mismatched identity")
+		return container.InspectResponse{}, errors.New("docker inspect returned an incomplete or mismatched identity")
 	}
 	return c, nil
 }
 
 func (w *dockerDiscovery) syncContainer(ctx context.Context, id string) error {
 	if !fullDockerID(id) {
-		return errors.New("Docker discovery refuses non-canonical container IDs")
+		return errors.New("docker discovery refuses non-canonical container IDs")
 	}
 	if current := w.cc.GetContainer(id); current != nil && current.Runtime.RuntimeName != types.RuntimeNameDocker {
-		return errors.New("Docker discovery refuses to replace another runtime's container")
+		return errors.New("docker discovery refuses to replace another runtime's container")
 	}
 	inspected, err := w.inspect(ctx, id)
 	if err != nil {
@@ -317,10 +317,10 @@ func (w *dockerDiscovery) syncContainer(ctx context.Context, id string) error {
 		return nil
 	}
 	if inspected.State.Pid <= 0 || inspected.State.Pid > math.MaxUint32 {
-		return errors.New("Docker inspect returned an invalid running PID")
+		return errors.New("docker inspect returned an invalid running PID")
 	}
 	if started, err := time.Parse(time.RFC3339Nano, inspected.State.StartedAt); err != nil || started.IsZero() {
-		return errors.New("Docker inspect returned an invalid start time")
+		return errors.New("docker inspect returned an invalid start time")
 	}
 	expected, err := w.probe(inspected.State.Pid)
 	if err != nil {
@@ -359,7 +359,7 @@ func (w *dockerDiscovery) syncContainer(ctx context.Context, id string) error {
 		}
 		if !fresh.State.Running || fresh.State.Pid != inspected.State.Pid ||
 			fresh.State.StartedAt != inspected.State.StartedAt || actual != expected || !same(enriched) {
-			validationErr = errors.New("Docker process identity changed during enrichment")
+			validationErr = errors.New("docker process identity changed during enrichment")
 			return false
 		}
 		return true
@@ -368,7 +368,7 @@ func (w *dockerDiscovery) syncContainer(ctx context.Context, id string) error {
 		return validationErr
 	}
 	if w.cc.GetContainer(id) != c {
-		return errors.New("Docker container was rejected during enrichment")
+		return errors.New("docker container was rejected during enrichment")
 	}
 	return nil
 }

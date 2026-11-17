@@ -47,7 +47,7 @@ runs:
         fi
 
         container_repo="${REGISTRY}/${CONTAINER_IMAGE}"
-        echo "container-repo=${container_repo}" >> $GITHUB_OUTPUT
+        echo "container-repo=${container_repo,,}" >> $GITHUB_OUTPUT
     - name: Output image tag
       id: craft-image-tag
       shell: bash
@@ -70,7 +70,7 @@ runs:
 
         gadget_repository="${REGISTRY}/${REPOSITORY_OWNER}/gadget"
 
-        echo "gadget-repository=${gadget_repository}" >> $GITHUB_OUTPUT
+        echo "gadget-repository=${gadget_repository,,}" >> $GITHUB_OUTPUT
     - name: Output gadgets image tag
       id: gadget-tag
       shell: bash
