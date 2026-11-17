@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: tcp-lifetime-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lifetime:
     name: Build and verify TCP connection lifetime

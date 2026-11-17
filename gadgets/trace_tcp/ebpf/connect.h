@@ -13,8 +13,6 @@
 struct extended_info {
 	struct gadget_process proc;
 	__u32 fd;
-	/* Uses the existing tail padding; keep the map's value size unchanged. */
-	__u32 claimed;
 };
 
 /*
@@ -134,6 +132,7 @@ static __always_inline void handle_tcp_set_state(struct pt_regs *ctx,
 	struct tuple_key_t tuple = {};
 	struct event *event;
 	struct extended_info *ei;
+	struct extended_info completed;
 	__u16 family;
 	int err;
 
@@ -152,25 +151,30 @@ static __always_inline void handle_tcp_set_state(struct pt_regs *ctx,
 	ei = bpf_map_lookup_elem(&tuplepid, &tuple);
 	if (!ei)
 		return; /* missed entry */
-	if (__sync_val_compare_and_swap(&ei->claimed, 0, 1))
+
+	/*
+	 * Copy before deletion, then let the successful deletion own completion.
+	 * Racing handlers cannot both claim the pending entry, and no event
+	 * reads the map value after another handler can retire it.
+	 */
+	completed = *ei;
+	if (bpf_map_delete_elem(&tuplepid, &tuple))
 		return;
 
 	err = BPF_CORE_READ(sk, sk_err);
 
 	// User does not want to see successful events
 	if (failure_only && err == 0)
-		goto end;
+		return;
 
 	event = gadget_reserve_buf(&events, sizeof(*event));
 	if (!event)
-		goto end;
+		return;
 
-	fill_event(event, &tuple, &ei->proc, err, connect);
-	event->fd = ei->fd;
+	fill_event(event, &tuple, &completed.proc, err, connect);
+	event->fd = completed.fd;
 
 	gadget_submit_buf(ctx, &events, event, sizeof(*event));
-end:
-	bpf_map_delete_elem(&tuplepid, &tuple);
 }
 
 #endif // __IG_TCP_CONNECT_H
